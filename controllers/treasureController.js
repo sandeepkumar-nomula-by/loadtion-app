@@ -1,6 +1,7 @@
 const Sequelize = require("sequelize");
 const Op = Sequelize.Op;
 const models = require("../models");
+const geolib = require("geolib");
 
 const degreesToRadians = (degrees) => (degrees / 180.0) * Math.PI;
 
@@ -43,11 +44,11 @@ exports.findTreasure = (req, res, next) => {
 
     const minLon =
       longitude -
-      distance / Math.abs(Math.cos(degreesToRadians(longitude)) * 111.12);
+      distance / (Math.abs(Math.cos(degreesToRadians(longitude))) * 111.12);
 
     const maxLon =
       longitude +
-      distance / Math.abs(Math.cos(degreesToRadians(longitude)) * 111.12);
+      distance / (Math.abs(Math.cos(degreesToRadians(longitude))) * 111.12);
 
     if (prize !== undefined && prize !== null && !isNaN(prize)) {
       models.Treasures.findAll({
@@ -63,8 +64,9 @@ exports.findTreasure = (req, res, next) => {
         },
       })
         .then((result) => {
+          let list = filterResults(latitude, longitude, distance, result);
           var ids = [];
-          result.forEach((treasure) => {
+          list.forEach((treasure) => {
             ids.push(treasure.dataValues.id);
           });
           models.Money_Values.findAll({
@@ -84,14 +86,18 @@ exports.findTreasure = (req, res, next) => {
               prizes.forEach((res) => {
                 selectedIds.push(res.treasure_id);
               });
-              res.json(
-                result.map((r) => {
-                  const index = selectedIds.indexOf(r.id);
-                  if (index !== -1) {
-                    return { ...r.dataValues, prize: prizes[index].minprize };
-                  }
-                })
-              );
+
+              var output = [];
+              list.forEach((r) => {
+                const index = selectedIds.indexOf(r.dataValues.id);
+                if (index !== -1) {
+                  output.push({
+                    ...r.dataValues,
+                    prize: prizes[index].minprize,
+                  });
+                }
+              });
+              res.json(output);
             })
             .catch((err) => {
               console.log(err);
@@ -115,7 +121,7 @@ exports.findTreasure = (req, res, next) => {
         },
       })
         .then((result) => {
-          res.json(result);
+          res.json(filterResults(latitude, longitude, distance, result));
         })
         .catch((err) => {
           res.json({ error: true, message: err });
@@ -155,4 +161,27 @@ const validate = (latitude, longitude, distance, prize) => {
     }
   }
   return null;
+};
+
+const filterResults = (latitude, longitude, radius, list) => {
+  let finalList = [];
+  list.forEach((treasure) => {
+    try {
+      var dist =
+        geolib.distanceConversion.km *
+        geolib.getDistance(
+          { latitude, longitude },
+          {
+            latitude: treasure.dataValues.latitude,
+            longitude: treasure.dataValues.longitude,
+          }
+        );
+    } catch (err) {
+      console.log(err);
+    }
+    if (dist < radius) {
+      finalList.push(treasure);
+    }
+  });
+  return finalList;
 };
